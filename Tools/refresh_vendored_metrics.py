@@ -4,7 +4,7 @@ Editing the vendored files by hand is the failure this exists to prevent. Two
 definitions of "absent" would let a checkpoint pass evaluation here and be
 rejected by admission there, which makes the admission gate meaningless.
 
-    python Tools/refresh_vendored_metrics.py <path-to-separador-pistas> v1.3.0
+    python -m Tools.refresh_vendored_metrics <path-to-separador-pistas> v1.3.0
 """
 
 from __future__ import annotations
