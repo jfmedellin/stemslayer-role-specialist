@@ -12,6 +12,7 @@ cannot ship.
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -91,6 +92,107 @@ def overfit(
         loss.backward()
         optimiser.step()
         history.append(float(loss.item()))
+    return history
+
+
+@dataclass(frozen=True)
+class Epoch:
+    """What one pass produced, in the terms a decision is made in."""
+
+    index: int
+    train_loss: float
+    seconds: float
+    report: dict
+
+
+def selection_key(epoch: "Epoch") -> tuple[float, float]:
+    """Rank epochs by publishability, breaking ties on reconstruction.
+
+    Publishability alone cannot rank an early project, where every epoch scores
+    zero and no later one ever beats the first. Selecting on it unqualified
+    keeps the least trained model of the run and reports it as the best, which
+    is how a night of training quietly produces nothing.
+
+    Reconstruction is the tiebreaker because it is the gate the other two
+    depend on: a decomposition that has lost energy cannot be rescued by
+    lowering leakage.
+    """
+    reconstruction = epoch.report.get("median_reconstruction_db", float("-inf"))
+    if not np.isfinite(reconstruction):
+        # Infinite reconstruction is a degenerate estimate, not a perfect one.
+        reconstruction = float("-inf") if reconstruction < 0 else 0.0
+    return (epoch.report.get("publishable", 0.0), reconstruction)
+
+
+def fit(
+    train_corpus: RenderedCorpus,
+    validation_corpus: RenderedCorpus,
+    thresholds: RoleThresholds,
+    *,
+    epochs: int = 20,
+    batch_size: int = 4,
+    steps_per_epoch: int = 64,
+    learning_rate: float = 3e-4,
+    device: str = "cpu",
+    checkpoint: Path | None = None,
+    on_epoch=None,
+) -> list[Epoch]:
+    """Train, and report each epoch against the gates rather than the loss.
+
+    The best epoch is chosen by how many validation results would be
+    publishable, not by the lowest loss. Those are different questions, and
+    only one of them is what a checkpoint has to answer.
+    """
+    import torch
+
+    frames = int(WINDOW_SECONDS * train_corpus.sample_rate)
+    rng = np.random.default_rng(0)
+    model = build_model(sample_rate=train_corpus.sample_rate).to(device)
+    optimiser = torch.optim.Adam(model.parameters(), lr=learning_rate)
+
+    history: list[Epoch] = []
+    best: tuple[float, float] | None = None
+    for index in range(epochs):
+        started = time.monotonic()
+        model.train()
+        losses = []
+        for _step in range(steps_per_epoch):
+            picks = rng.integers(0, len(train_corpus), size=batch_size)
+            batch = draw_batch(train_corpus, picks, frames, rng)
+            optimiser.zero_grad(set_to_none=True)
+            loss = torch.nn.functional.l1_loss(
+                model(torch.from_numpy(batch.mixture).to(device)),
+                torch.from_numpy(batch.targets).to(device),
+            )
+            loss.backward()
+            optimiser.step()
+            losses.append(float(loss.item()))
+
+        report = evaluate(model, validation_corpus, thresholds, limit=32, device=device)
+        epoch = Epoch(
+            index=index,
+            train_loss=float(np.mean(losses)),
+            seconds=time.monotonic() - started,
+            report=report,
+        )
+        history.append(epoch)
+        if on_epoch is not None:
+            on_epoch(epoch)
+        # Keep the epoch that produced the most publishable results, because a
+        # lower loss that publishes nothing is not progress.
+        ranked = selection_key(epoch)
+        if checkpoint is not None and (best is None or ranked > best):
+            best = ranked
+            torch.save(
+                {
+                    "sources": list(SOURCES),
+                    "sample_rate": train_corpus.sample_rate,
+                    "epoch": index,
+                    "report": report,
+                    "state_dict": model.state_dict(),
+                },
+                checkpoint,
+            )
     return history
 
 
