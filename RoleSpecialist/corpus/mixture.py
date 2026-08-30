@@ -13,11 +13,12 @@ violate it on purpose, which `centred_rhythm` exists to do.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import numpy as np
 
 from RoleSpecialist.corpus.amp import amplify
+from RoleSpecialist.corpus.arrangement import TRAIN, Arrangement, sample
 from RoleSpecialist.corpus.performance import lead_part, rhythm_part
 
 SAMPLE_RATE = 44_100
@@ -40,6 +41,7 @@ class LabelledMixture:
     rhythm: np.ndarray
     sample_rate: int
     lead_is_absent: bool
+    arrangement: Arrangement | None = None
 
     @property
     def guitar_family(self) -> np.ndarray:
@@ -49,6 +51,82 @@ class LabelledMixture:
     @property
     def frame_count(self) -> int:
         return int(self.lead.shape[0])
+
+
+def render_arrangement(
+    arrangement: Arrangement,
+    duration_seconds: float = 4.0,
+    *,
+    sample_rate: int = SAMPLE_RATE,
+    rhythm_gain: float = 0.55,
+    lead_gain: float = 0.70,
+) -> LabelledMixture:
+    """Render the example one arrangement describes.
+
+    An arrangement with `with_lead=False` produces a lead lane of real silence.
+    Metal arrangements are full of them, and the contract treats such a lane as
+    a valid result rather than a failure, so the corpus has to contain them or
+    the specialist will never learn to publish one.
+    """
+    seed = arrangement.seed
+    rhythm_mono = amplify(
+        rhythm_part(
+            duration_seconds,
+            sample_rate,
+            seed=seed,
+            riff=arrangement.riff,
+            tempo_bpm=arrangement.tempo_bpm,
+            root_hz=arrangement.root_hz,
+        ),
+        sample_rate,
+        drive=arrangement.rhythm_drive,
+    )
+    if arrangement.centred_rhythm:
+        rhythm = _centred(rhythm_mono, rhythm_gain)
+    else:
+        # Two takes, not one take copied: a doubled rhythm guitar is two
+        # performances, and duplicating one channel would make the pair
+        # perfectly correlated and trivially separable by position alone.
+        second = amplify(
+            rhythm_part(
+                duration_seconds,
+                sample_rate,
+                seed=seed + 131,
+                riff=arrangement.riff,
+                tempo_bpm=arrangement.tempo_bpm,
+                root_hz=arrangement.root_hz,
+            ),
+            sample_rate,
+            drive=arrangement.rhythm_drive,
+        )
+        rhythm = _stereo(rhythm_mono * rhythm_gain, second[: rhythm_mono.shape[0]] * rhythm_gain)
+
+    if arrangement.with_lead:
+        lead_mono = amplify(
+            lead_part(
+                duration_seconds,
+                sample_rate,
+                seed=seed,
+                scale=arrangement.scale,
+                tempo_bpm=arrangement.tempo_bpm,
+                root_hz=arrangement.root_hz * arrangement.lead_register,
+                notes_per_beat=arrangement.lead_density,
+            ),
+            sample_rate,
+            drive=arrangement.lead_drive,
+            presence=0.5,
+        )
+        lead = _centred(lead_mono, lead_gain)
+    else:
+        lead = np.zeros_like(rhythm)
+
+    return LabelledMixture(
+        lead=lead,
+        rhythm=rhythm,
+        sample_rate=sample_rate,
+        lead_is_absent=not arrangement.with_lead,
+        arrangement=arrangement,
+    )
 
 
 def render(
@@ -61,35 +139,20 @@ def render(
     rhythm_gain: float = 0.55,
     lead_gain: float = 0.70,
 ) -> LabelledMixture:
-    """Render one example.
+    """Render one example, drawing its arrangement from the seed.
 
-    `with_lead=False` produces a track whose lead lane is real silence. Metal
-    arrangements are full of them, and the contract treats such a lane as a
-    valid result rather than a failure, so the corpus has to contain them or
-    the specialist will never learn to publish one.
+    This is the convenience path for probes and fixtures. A corpus draws its
+    arrangements from a split instead, so that what trains and what validates
+    can be kept apart.
     """
-    rhythm_mono = amplify(
-        rhythm_part(duration_seconds, sample_rate, seed=seed), sample_rate, drive=22.0
+    drawn = sample(TRAIN, seed)
+    arrangement = replace(
+        drawn, seed=seed, with_lead=with_lead, centred_rhythm=centred_rhythm
     )
-    if centred_rhythm:
-        rhythm = _centred(rhythm_mono, rhythm_gain)
-    else:
-        # Two takes, not one take copied: a doubled rhythm guitar is two
-        # performances, and duplicating one channel would make the pair
-        # perfectly correlated and trivially separable by position alone.
-        second = amplify(
-            rhythm_part(duration_seconds, sample_rate, seed=seed + 131), sample_rate, drive=22.0
-        )
-        rhythm = _stereo(rhythm_mono * rhythm_gain, second[: rhythm_mono.shape[0]] * rhythm_gain)
-
-    if with_lead:
-        lead_mono = amplify(
-            lead_part(duration_seconds, sample_rate, seed=seed), sample_rate, drive=14.0, presence=0.5
-        )
-        lead = _centred(lead_mono, lead_gain)
-    else:
-        lead = np.zeros_like(rhythm)
-
-    return LabelledMixture(
-        lead=lead, rhythm=rhythm, sample_rate=sample_rate, lead_is_absent=not with_lead
+    return render_arrangement(
+        arrangement,
+        duration_seconds,
+        sample_rate=sample_rate,
+        rhythm_gain=rhythm_gain,
+        lead_gain=lead_gain,
     )

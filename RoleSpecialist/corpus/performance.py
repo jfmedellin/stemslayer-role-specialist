@@ -8,6 +8,8 @@ these two functions never share a note event.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 import numpy as np
 
 from RoleSpecialist.corpus.strings import envelope, pluck
@@ -29,6 +31,7 @@ def rhythm_part(
     sample_rate: int,
     *,
     seed: int,
+    riff: Sequence[int],
     tempo_bpm: float = 160.0,
     root_hz: float = LOW_E_HZ,
 ) -> np.ndarray:
@@ -36,15 +39,19 @@ def rhythm_part(
 
     A power chord is the root and its fifth, which is why rhythm guitar sits in
     a narrow band and stacks without turning to mud.
+
+    The riff, tempo and root are arguments rather than constants because a
+    corpus that fixes them renders one example many times over.
     """
+    if not len(riff):
+        raise ValueError("A rhythm part needs at least one note in its riff.")
     eighth = 60.0 / tempo_bpm / 2.0
     frames_per_note = max(1, int(round(eighth * sample_rate)))
     total = int(round(duration_seconds * sample_rate))
     part = np.zeros(total, dtype=np.float64)
     shape = envelope(frames_per_note, sample_rate)
 
-    pattern = (0, 0, 3, 0, 0, 5, 3, 0)
-    for step, offset in enumerate(np.resize(pattern, total // frames_per_note + 1)):
+    for step, offset in enumerate(np.resize(riff, total // frames_per_note + 1)):
         start = step * frames_per_note
         if start >= total:
             break
@@ -61,29 +68,38 @@ def lead_part(
     sample_rate: int,
     *,
     seed: int,
+    scale: Sequence[int] = PENTATONIC_SEMITONES,
     tempo_bpm: float = 160.0,
     root_hz: float = LOW_E_HZ * 2.0,
+    notes_per_beat: int = 4,
 ) -> np.ndarray:
-    """Return a single-note melodic line an octave above the riff.
+    """Return a single-note melodic line above the riff.
 
     One note at a time, in a higher register, is what makes a lead line read as
     foreground. It shares no note event with the rhythm part.
+
+    The scale and note density vary because a corpus built on one vocabulary
+    teaches the model that vocabulary rather than the role it belongs to.
     """
-    sixteenth = 60.0 / tempo_bpm / 4.0
-    frames_per_note = max(1, int(round(sixteenth * sample_rate)))
+    if not len(scale):
+        raise ValueError("A lead part needs at least one degree in its scale.")
+    if notes_per_beat <= 0:
+        raise ValueError("A lead part needs a positive note density.")
+    step_seconds = 60.0 / tempo_bpm / notes_per_beat
+    frames_per_note = max(1, int(round(step_seconds * sample_rate)))
     total = int(round(duration_seconds * sample_rate))
     part = np.zeros(total, dtype=np.float64)
     shape = envelope(frames_per_note, sample_rate)
     rng = np.random.default_rng(seed)
 
     steps = total // frames_per_note + 1
-    degrees = rng.integers(0, len(PENTATONIC_SEMITONES), size=steps)
+    degrees = rng.integers(0, len(scale), size=steps)
     for step, degree in enumerate(degrees):
         start = step * frames_per_note
         if start >= total:
             break
         span = min(frames_per_note, total - start)
-        semitones = PENTATONIC_SEMITONES[int(degree)]
-        note = pluck(note_hz(root_hz, semitones), sixteenth, sample_rate, seed=seed + 5_003 + step)
+        semitones = scale[int(degree)]
+        note = pluck(note_hz(root_hz, semitones), step_seconds, sample_rate, seed=seed + 5_003 + step)
         part[start : start + span] += note[:span] * shape[:span]
     return part.astype(np.float32)
