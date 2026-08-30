@@ -15,3 +15,6 @@
 .venv/
 __pycache__/
 *.pyc
+
+# CodeGraph keeps a local index per checkout and must never be shared.
+.codegraph/
