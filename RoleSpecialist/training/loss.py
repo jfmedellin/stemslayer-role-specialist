@@ -35,6 +35,9 @@ SILENCE_FLOOR = 1e-12
 # Aim below the threshold rather than at it. A model trained to land exactly on
 # it fails on the first track that is slightly harder.
 DEFAULT_MARGIN_DB = 10.0
+# The share of samples the level estimate averages. Measured at 0.01% it sits
+# about 3 dB below the true peak, which the margin above absorbs.
+LOUDEST_FRACTION = 1e-4
 # Loss contributed per decibel of excess. At the ~57 dB gap this run started
 # with, 0.001 per dB is about 0.057, which is the same order as the L1 term it
 # has to share gradient with rather than overwhelm.
@@ -52,18 +55,34 @@ def silent_lane_mask(targets):
     return torch.amax(torch.abs(targets), dim=(-2, -1)) == 0
 
 
-def lane_level_db(estimate):
-    """Return each lane's RMS level in dB.
+def lane_level_db(estimate, fraction: float = LOUDEST_FRACTION):
+    """Return each lane's level in dB, measured the way the gate measures it.
 
-    RMS rather than peak: the gate measures peak, but peak carries gradient at
-    one sample while RMS carries it at every one. A lane driven to a low RMS
-    arrives at a low peak, and it gets there from a signal that is actually
-    learnable.
+    This began as RMS, on the reasoning that peak carries gradient at a single
+    sample while RMS carries it everywhere, and that a lane driven to a low RMS
+    arrives at a low peak. The second half of that is false, and a run proved
+    it: the term reported itself satisfied from epoch 49 onward while the level
+    the gate actually reads drifted from -26 dBFS to -13 dBFS.
+
+    The residue in a lane that should be silent is impulsive, so RMS averages
+    the transients away and peak does not. Measured on that run's checkpoint:
+
+        RMS                 -55.3 dB      30.4 dB below the peak
+        mean of loudest 1%  -41.6 dB      16.7 dB below
+        mean of loudest 0.1% -32.3 dB      7.4 dB below
+        mean of loudest 0.01% -27.8 dB     2.9 dB below
+        peak                -24.9 dBFS    what the gate reads
+
+    The mean of the loudest fraction tracks the peak within a few decibels and
+    still spreads gradient across tens of samples rather than one. Optimising
+    it moves the number that decides publication, which RMS did not.
     """
     import torch
 
-    power = torch.mean(estimate**2, dim=(-2, -1))
-    return 10.0 * torch.log10(power + SILENCE_FLOOR)
+    flat = torch.abs(estimate).flatten(start_dim=-2)
+    count = max(1, int(fraction * flat.shape[-1]))
+    loudest = torch.topk(flat, count, dim=-1).values.mean(dim=-1)
+    return 20.0 * torch.log10(loudest + SILENCE_FLOOR)
 
 
 def silence_penalty(

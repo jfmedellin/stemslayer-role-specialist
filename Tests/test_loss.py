@@ -104,6 +104,33 @@ class LevelTests(unittest.TestCase):
     def test_digital_silence_reads_far_below_the_floor(self):
         self.assertLess(float(lane_level_db(torch.zeros(1, 1, 2, FRAMES))[0, 0]), CANDIDATE)
 
+    def test_it_follows_the_peak_of_an_impulsive_lane_where_rms_does_not(self):
+        """The exact signal that defeated the first version of this term.
+
+        A lane that should be silent holds mostly nothing and a few
+        transients. RMS averages those away, so it reported a quiet lane while
+        the gate, which reads the peak, saw one that was thirty decibels
+        louder.
+        """
+        lane = torch.zeros(1, 1, 2, 200_000)
+        lane[..., ::5_000] = 0.05  # sparse transients, near-silence between them
+
+        estimated = float(lane_level_db(lane)[0, 0])
+        peak = 20.0 * torch.log10(lane.abs().max()).item()
+        rms = 10.0 * torch.log10((lane**2).mean()).item()
+
+        self.assertLess(abs(estimated - peak), 6.0, "the estimate lost the transients")
+        self.assertGreater(peak - rms, 20.0, "this signal no longer reproduces the failure")
+
+    def test_a_dense_lane_reads_close_to_its_peak_too(self):
+        lane = 0.25 * torch.ones(1, 1, 2, 100_000)
+
+        self.assertAlmostEqual(
+            20.0 * torch.log10(torch.tensor(0.25)).item(),
+            float(lane_level_db(lane)[0, 0]),
+            places=3,
+        )
+
 
 class SeparationLossTests(unittest.TestCase):
     def setUp(self):
