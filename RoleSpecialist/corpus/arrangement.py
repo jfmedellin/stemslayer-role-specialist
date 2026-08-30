@@ -53,6 +53,13 @@ VALIDATION_SCALES = (
 ROOT_HZ_RANGE = (55.0, 98.0)
 TEMPO_BPM_RANGE = (95.0, 210.0)
 RHYTHM_DRIVE_RANGE = (14.0, 30.0)
+# How much of a riff is played palm-muted. A corpus fixed at one value teaches
+# that articulation rather than the role it belongs to.
+PALM_MUTE_RANGE = (0.2, 0.8)
+# Cabinet voicing. Two guitarists on the same riff through different amps is a
+# difference the model has to see, or it learns our one amplifier.
+CABINET_HZ_RANGE = (3_500.0, 6_500.0)
+PRESENCE_RANGE = (0.20, 0.50)
 LEAD_DRIVE_RANGE = (9.0, 18.0)
 LEAD_REGISTER_CHOICES = (2.0, 3.0, 4.0)
 LEAD_DENSITY_CHOICES = (2, 4)
@@ -81,6 +88,9 @@ class Arrangement:
     lead_drive: float
     lead_register: float
     lead_density: int
+    palm_mute_rate: float
+    cabinet_hz: float
+    presence: float
     with_lead: bool
     centred_rhythm: bool
 
@@ -97,6 +107,7 @@ class Arrangement:
             self.scale,
             round(self.tempo_bpm, 2),
             round(self.root_hz, 2),
+            round(self.palm_mute_rate, 3),
             self.lead_register,
             self.lead_density,
             self.with_lead,
@@ -138,6 +149,9 @@ def sample(split: str, index: int) -> Arrangement:
         lead_drive=float(rng.uniform(*LEAD_DRIVE_RANGE)),
         lead_register=float(LEAD_REGISTER_CHOICES[int(rng.integers(len(LEAD_REGISTER_CHOICES)))]),
         lead_density=int(LEAD_DENSITY_CHOICES[int(rng.integers(len(LEAD_DENSITY_CHOICES)))]),
+        palm_mute_rate=float(rng.uniform(*PALM_MUTE_RANGE)),
+        cabinet_hz=float(rng.uniform(*CABINET_HZ_RANGE)),
+        presence=float(rng.uniform(*PRESENCE_RANGE)),
         with_lead=bool(rng.random() >= LEAD_ABSENT_RATE),
         centred_rhythm=bool(rng.random() < CENTRED_RHYTHM_RATE),
     )

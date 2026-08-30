@@ -77,9 +77,12 @@ def render_arrangement(
             riff=arrangement.riff,
             tempo_bpm=arrangement.tempo_bpm,
             root_hz=arrangement.root_hz,
+            palm_mute_rate=arrangement.palm_mute_rate,
         ),
         sample_rate,
         drive=arrangement.rhythm_drive,
+        presence=arrangement.presence,
+        cabinet_hz=arrangement.cabinet_hz,
     )
     if arrangement.centred_rhythm:
         rhythm = _centred(rhythm_mono, rhythm_gain)
@@ -95,9 +98,12 @@ def render_arrangement(
                 riff=arrangement.riff,
                 tempo_bpm=arrangement.tempo_bpm,
                 root_hz=arrangement.root_hz,
+                palm_mute_rate=arrangement.palm_mute_rate,
             ),
             sample_rate,
             drive=arrangement.rhythm_drive,
+            presence=arrangement.presence,
+            cabinet_hz=arrangement.cabinet_hz,
         )
         rhythm = _stereo(rhythm_mono * rhythm_gain, second[: rhythm_mono.shape[0]] * rhythm_gain)
 
@@ -114,7 +120,8 @@ def render_arrangement(
             ),
             sample_rate,
             drive=arrangement.lead_drive,
-            presence=0.5,
+            presence=arrangement.presence + 0.15,
+            cabinet_hz=arrangement.cabinet_hz,
         )
         lead = _centred(lead_mono, lead_gain)
     else:

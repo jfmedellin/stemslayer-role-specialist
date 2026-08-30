@@ -118,6 +118,19 @@ class CorpusContractTests(unittest.TestCase):
         self.assertTrue(np.array_equal(left, right))
         self.assertTrue(is_audible(example.rhythm, TARGETS))
 
+    def test_the_rhythm_breathes_between_hits_rather_than_ringing_throughout(self):
+        """Palm muting is what a chugging riff is made of.
+
+        A rhythm part that never stops sounding is a wall of sustain, and a
+        model trained on it will not recognise the gaps a real riff has.
+        """
+        rhythm = self.example.rhythm
+
+        sounding = float(np.mean(np.abs(rhythm) > 1e-4))
+
+        self.assertLess(sounding, 0.95, "the riff never stops sounding")
+        self.assertGreater(sounding, 0.20, "the riff barely sounds at all")
+
     def test_the_audio_contract_matches_what_the_specialist_must_emit(self):
         self.assertEqual(44_100, self.example.sample_rate)
         self.assertEqual(2, self.example.lead.shape[1])

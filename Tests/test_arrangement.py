@@ -87,6 +87,20 @@ class VariationTests(unittest.TestCase):
         self.assertGreater(max(tempos) - min(tempos), 90.0)
         self.assertGreater(max(roots) - min(roots), 35.0)
 
+    def test_articulation_and_amplifier_voicing_both_vary(self):
+        """A corpus fixed on one articulation teaches that articulation.
+
+        Palm muting is what makes a riff read as metal, and a model shown only
+        one amount of it learns the amount rather than the role. The cabinet
+        voicing varies for the same reason: two guitarists on the same riff
+        through different amplifiers is a difference the model has to see.
+        """
+        mutes = [a.palm_mute_rate for a in self.drawn]
+        cabinets = [a.cabinet_hz for a in self.drawn]
+
+        self.assertGreater(max(mutes) - min(mutes), 0.4)
+        self.assertGreater(max(cabinets) - min(cabinets), 2_000.0)
+
     def test_the_corpus_contains_tracks_with_no_lead(self):
         """A corpus of nothing but lead-bearing tracks teaches the model that a
         silent lead lane is always an error."""
