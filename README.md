@@ -74,6 +74,7 @@ RoleSpecialist/
 |   |-- dataset.py       # A rendered split, cropped into aligned windows
 |   |-- evaluate.py      # Scoring against the contract gates, not against loss
 |   `-- train.py         # The loop, and the overfit check that precedes trusting it
+|-- publish.py           # Absence decided by reconstruction, at publication time
 `-- vendor/              # role_metrics.py and thresholds.json, copied from a tag
 ```
 
@@ -133,23 +134,75 @@ and none beat the first. That is the entire early life of this project, and it
 would have returned the model from before it learned anything after every run,
 including an overnight one. Reconstruction now breaks the tie.
 
-### Absent leads are 70 dB away from counting as absent
+### Absence is a publication decision, not something a network learns
 
-On validation tracks whose true lead is digital silence, the trained model
-predicts a lead lane at about -10 dBFS. The contract counts a lane as absent at
-or below -80 dBFS.
+Four runs went into this, and three of the diagnoses along the way were wrong.
+Each was corrected by a measurement rather than by another run.
 
-Two explanations fit: too little training, or an L1 waveform loss that pushes
-toward an average and never toward digital silence. If it is the second, no
-track without a solo can ever score as correct, and the loss needs a term that
-rewards silence when the target is silent. Distinguishing them is the next
-measurement, not the next assumption.
+The symptom was that absence recall stayed at exactly zero. Two hundred epochs
+took reconstruction from 4.4 dB to 32.2 dB and reached 75% publishable while
+every track with no lead failed and every track with one passed: the ceiling
+was not the model's quality, it was the fraction of the corpus that has a solo.
+
+**It was not undertraining.** Reconstruction crossed its gate and absence recall
+never moved.
+
+**It was not a missing loss term, exactly.** A term aimed at the contract's
+-80 dBFS absence floor moved a silent lane from -23 dBFS to -51 dBFS and cost
+nine decibels of reconstruction, taking the run to nothing publishable. A
+shared network cannot push one lane thirty decibels further down without
+biasing that lane everywhere else.
+
+**The floor was the wrong target.** It is a classification threshold, not a
+level a network has to reach. A lane only needs to fall below the audibility
+minimum to become a *candidate*, and reconstruction decides the rest. That is
+forty decibels less work.
+
+**And the term was measuring the wrong thing.** Aimed at the audibility
+minimum it reported itself satisfied from epoch 49 while the level that decides
+publication drifted from -26 dBFS to -13 dBFS. It optimised RMS and was judged
+on peak, and residue in a lane that should be silent is impulsive:
+
+| Estimator | Level | Distance from the peak |
+| --- | --- | --- |
+| RMS | -55.3 dB | 30.4 dB |
+| Mean of loudest 1% | -41.6 dB | 16.7 dB |
+| Mean of loudest 0.1% | -32.3 dB | 7.4 dB |
+| Mean of loudest 0.01% | -27.8 dB | 2.9 dB |
+| Peak | -24.9 dBFS | what the gate reads |
+
+The earlier floor-aimed run had only worked because aiming forty decibels too
+low dragged the peak down as a side effect. The margin was absorbing the error,
+not the reasoning being right.
+
+With the term aimed at the audibility minimum and measuring the loudest
+fraction, absence recall reached 1.00: six of six absences found, no false
+calls in either direction, and the published lane is exact digital silence
+because `publish.py` zeroes it once removing it is shown to cost no energy.
+
+Removing a genuinely absent lead leaves reconstruction at 33.3 dB. Removing a
+real one collapses it from 31.0 dB to 2.9 dB. That margin is what makes the
+decision safe to act on, and it lives in publication rather than in training
+because the contract puts it there.
+
+## Where the runs stand
+
+| Run | Reconstruction | Publishable | Absence recall |
+| --- | --- | --- | --- |
+| L1 only | 32.2 dB | 75% | 0 of 6 |
+| Silence term aimed at the -80 dBFS floor | 23.3 dB | 0% | 6 of 6 |
+| Aimed at audibility, measuring RMS | 30.3 dB | 41% | 0 of 6 |
+| Aimed at audibility, measuring the peak | 27.9 dB | 19% | 6 of 6 |
+
+The last row solves absence and has not yet recovered the reconstruction the
+first row reached. Its trajectory was still climbing at epoch 200, so the next
+measurement is simply a longer run rather than another change.
 
 ## Status
 
 Nothing here is admissible. A corpus renders and satisfies the gates its own
-ground truth must satisfy, a harness learns from it, and a checkpoint reaches
-about 20 dB of reconstruction against a 30 dB gate with nothing publishable.
+ground truth must satisfy, a harness learns from it, absence is decided the way
+the contract specifies, and no checkpoint yet clears every gate at once.
 Evaluation on real metal recordings and the perceptual evidence the contract
 requires are both still ahead.
 
