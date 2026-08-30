@@ -25,6 +25,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--batch-size", type=int, default=4)
     parser.add_argument("--steps-per-epoch", type=int, default=64)
     parser.add_argument("--learning-rate", type=float, default=3e-4)
+    parser.add_argument("--silence-weight-per-db", type=float, default=None)
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--checkpoint", type=Path, default=Path("checkpoints/latest.pt"))
     arguments = parser.parse_args(argv)
@@ -46,10 +47,12 @@ def main(argv: list[str] | None = None) -> int:
     def report_epoch(epoch):
         summary = epoch.report
         print(
-            f"epoch {epoch.index:3d}  loss {epoch.train_loss:.5f}  "
+            f"epoch {epoch.index:3d}  loss {epoch.train_loss:.5f}"
+            f" (silence {epoch.silence_loss:.5f})  "
             f"publishable {summary['publishable']:5.1%}  "
             f"recon {summary['median_reconstruction_db']:6.1f} dB  "
-            f"worst leakage {summary['worst_leakage_db']:6.1f} dB  "
+            f"leak {summary['worst_leakage_db']:6.1f} dB  "
+            f"silent lane {summary['silent_lane_dbfs']:7.1f} dBFS  "
             f"absence {summary['absence_recalled']:.2f}  "
             f"({epoch.seconds:.0f}s)",
             flush=True,
@@ -63,6 +66,11 @@ def main(argv: list[str] | None = None) -> int:
         batch_size=arguments.batch_size,
         steps_per_epoch=arguments.steps_per_epoch,
         learning_rate=arguments.learning_rate,
+        **(
+            {}
+            if arguments.silence_weight_per_db is None
+            else {"silence_weight_per_db": arguments.silence_weight_per_db}
+        ),
         device=arguments.device,
         checkpoint=arguments.checkpoint,
         on_epoch=report_epoch,

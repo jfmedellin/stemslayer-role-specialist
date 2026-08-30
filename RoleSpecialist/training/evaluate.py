@@ -21,6 +21,7 @@ from RoleSpecialist.vendor.role_metrics import (
     cross_role_energy_ratio_db,
     is_absent,
     is_audible,
+    peak_dbfs,
     signal_to_residual_db,
 )
 
@@ -36,6 +37,7 @@ class ExampleScore:
     lead_absent_predicted: bool
     lead_audible: bool
     rhythm_audible: bool
+    lead_peak_dbfs: float = 0.0
 
     def passes(self, thresholds: RoleThresholds) -> bool:
         """Report whether this result would be publishable.
@@ -72,6 +74,7 @@ def score_example(
         lead_absent_predicted=is_absent(predicted_lead, thresholds),
         lead_audible=is_audible(predicted_lead, thresholds),
         rhythm_audible=is_audible(predicted_rhythm, thresholds),
+        lead_peak_dbfs=peak_dbfs(predicted_lead),
     )
 
 
@@ -89,7 +92,19 @@ def summarise(scores, thresholds: RoleThresholds) -> dict:
             max(s.lead_leakage_db, s.rhythm_leakage_db) for s in scores
         ),
         "absence_recalled": _absence_recall(scores),
+        # The level itself, because absence recall is a step function and stays
+        # at zero through every decibel of progress until it suddenly does not.
+        "silent_lane_dbfs": _silent_lane_level(scores),
     }
+
+
+def _silent_lane_level(scores) -> float:
+    """Return the median level predicted where the lead is genuinely silent."""
+    levels = [s.lead_peak_dbfs for s in scores if s.lead_absent_expected]
+    finite = [level for level in levels if np.isfinite(level)]
+    if not levels:
+        return float("nan")
+    return float(np.median(finite)) if finite else float("-inf")
 
 
 def _absence_recall(scores) -> float:

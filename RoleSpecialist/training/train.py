@@ -20,6 +20,7 @@ import numpy as np
 
 from RoleSpecialist.training.dataset import RenderedCorpus
 from RoleSpecialist.training.evaluate import score_example, summarise
+from RoleSpecialist.training.loss import DEFAULT_WEIGHT_PER_DB, separation_loss
 from RoleSpecialist.training.model import SOURCES, build_model
 from RoleSpecialist.vendor.role_metrics import RoleThresholds
 
@@ -58,6 +59,7 @@ def overfit(
     steps: int = 400,
     size: int = 2,
     learning_rate: float = 3e-3,
+    absence_floor_dbfs: float = -80.0,
     device: str = "cpu",
 ) -> list[float]:
     """Drive one fixed batch toward zero loss, and report whether it moved.
@@ -88,7 +90,9 @@ def overfit(
     for _step in range(steps):
         optimiser.zero_grad(set_to_none=True)
         predicted = model(mixture)
-        loss = torch.nn.functional.l1_loss(predicted, targets)
+        loss, _reconstruction, _silence = separation_loss(
+            predicted, targets, floor_dbfs=absence_floor_dbfs
+        )
         loss.backward()
         optimiser.step()
         history.append(float(loss.item()))
@@ -103,6 +107,7 @@ class Epoch:
     train_loss: float
     seconds: float
     report: dict
+    silence_loss: float = 0.0
 
 
 def selection_key(epoch: "Epoch") -> tuple[float, float]:
@@ -133,6 +138,7 @@ def fit(
     batch_size: int = 4,
     steps_per_epoch: int = 64,
     learning_rate: float = 3e-4,
+    silence_weight_per_db: float = DEFAULT_WEIGHT_PER_DB,
     device: str = "cpu",
     checkpoint: Path | None = None,
     on_epoch=None,
@@ -155,18 +161,21 @@ def fit(
     for index in range(epochs):
         started = time.monotonic()
         model.train()
-        losses = []
+        losses, silences = [], []
         for _step in range(steps_per_epoch):
             picks = rng.integers(0, len(train_corpus), size=batch_size)
             batch = draw_batch(train_corpus, picks, frames, rng)
             optimiser.zero_grad(set_to_none=True)
-            loss = torch.nn.functional.l1_loss(
+            loss, reconstruction, silence = separation_loss(
                 model(torch.from_numpy(batch.mixture).to(device)),
                 torch.from_numpy(batch.targets).to(device),
+                floor_dbfs=thresholds.absence_at_or_below_dbfs,
+                weight_per_db=silence_weight_per_db,
             )
             loss.backward()
             optimiser.step()
             losses.append(float(loss.item()))
+            silences.append(silence)
 
         report = evaluate(model, validation_corpus, thresholds, limit=32, device=device)
         epoch = Epoch(
@@ -174,6 +183,7 @@ def fit(
             train_loss=float(np.mean(losses)),
             seconds=time.monotonic() - started,
             report=report,
+            silence_loss=float(np.mean(silences)),
         )
         history.append(epoch)
         if on_epoch is not None:
