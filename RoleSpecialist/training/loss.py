@@ -11,17 +11,29 @@ nothing: in linear amplitude those are both indistinguishable from zero. The
 contract asks an absolute question in decibels, and the loss was answering a
 relative one in amplitude.
 
-The term below asks the contract's question. It applies only to lanes whose
-target is genuinely silent, because a penalty that rewarded quiet everywhere
-would teach the model that emitting nothing is always safe, and Stemslayer's
-contract is explicit that a silent lane which loses energy is a failure.
+The term below asks a decibel question, and asks a smaller one than the first
+attempt did. Aiming it at the -80 dBFS absence floor cost nine decibels of
+reconstruction and took a run from 75% publishable to nothing, because a shared
+network cannot push one lane thirty decibels further down without biasing the
+same lane everywhere else.
+
+It does not need to. Absence is decided by reconstruction at publication time,
+and a lane only has to be quiet enough to *become a candidate* for that
+decision: below the audibility minimum. That is forty decibels less work, and
+it is the whole job. Aiming at the floor was aiming at a classification
+threshold as though it were a target the network had to reach.
+
+The term applies only to lanes whose target is genuinely silent, because a
+penalty that rewarded quiet everywhere would teach the model that emitting
+nothing is always safe, and Stemslayer's contract is explicit that a silent
+lane which loses energy is a failure.
 """
 
 from __future__ import annotations
 
 SILENCE_FLOOR = 1e-12
-# Aim below the gate rather than at it. A model trained to land exactly on the
-# threshold fails it on the first track that is slightly harder.
+# Aim below the threshold rather than at it. A model trained to land exactly on
+# it fails on the first track that is slightly harder.
 DEFAULT_MARGIN_DB = 10.0
 # Loss contributed per decibel of excess. At the ~57 dB gap this run started
 # with, 0.001 per dB is about 0.057, which is the same order as the L1 term it
@@ -58,22 +70,25 @@ def silence_penalty(
     estimate,
     targets,
     *,
-    floor_dbfs: float,
+    candidate_dbfs: float,
     margin_db: float = DEFAULT_MARGIN_DB,
     weight_per_db: float = DEFAULT_WEIGHT_PER_DB,
 ):
     """Return the cost of energy in a lane that should hold none.
 
-    Zero once a silent lane is quiet enough, and linear in decibels above that,
-    so the push is the same strength at -20 dBFS as at -60. That constancy is
-    the point: it is exactly what an amplitude-domain term stops providing.
+    `candidate_dbfs` is the level a lane must fall below to be considered for
+    absence at publication time, not the level it must eventually reach. The
+    penalty is zero once a silent lane is that quiet, and linear in decibels
+    above it, so the push is the same strength at -20 dBFS as at -45. That
+    constancy is the point: it is exactly what an amplitude-domain term stops
+    providing.
     """
     import torch
 
     mask = silent_lane_mask(targets)
     if not bool(torch.any(mask)):
         return torch.zeros((), device=estimate.device, dtype=estimate.dtype)
-    excess = torch.relu(lane_level_db(estimate) - (floor_dbfs - margin_db))
+    excess = torch.relu(lane_level_db(estimate) - (candidate_dbfs - margin_db))
     return weight_per_db * (excess * mask).sum() / mask.sum()
 
 
@@ -81,7 +96,7 @@ def separation_loss(
     estimate,
     targets,
     *,
-    floor_dbfs: float,
+    candidate_dbfs: float,
     margin_db: float = DEFAULT_MARGIN_DB,
     weight_per_db: float = DEFAULT_WEIGHT_PER_DB,
 ):
@@ -92,7 +107,7 @@ def separation_loss(
     silence = silence_penalty(
         estimate,
         targets,
-        floor_dbfs=floor_dbfs,
+        candidate_dbfs=candidate_dbfs,
         margin_db=margin_db,
         weight_per_db=weight_per_db,
     )

@@ -22,6 +22,7 @@ from RoleSpecialist.training.dataset import RenderedCorpus
 from RoleSpecialist.training.evaluate import score_example, summarise
 from RoleSpecialist.training.loss import DEFAULT_WEIGHT_PER_DB, separation_loss
 from RoleSpecialist.training.model import SOURCES, build_model
+from RoleSpecialist.publish import resolve_absence
 from RoleSpecialist.vendor.role_metrics import RoleThresholds
 
 # HTDemucs works on windows, not whole songs. Four seconds covers several bars
@@ -59,7 +60,7 @@ def overfit(
     steps: int = 400,
     size: int = 2,
     learning_rate: float = 3e-3,
-    absence_floor_dbfs: float = -80.0,
+    absence_candidate_dbfs: float = -40.0,
     device: str = "cpu",
 ) -> list[float]:
     """Drive one fixed batch toward zero loss, and report whether it moved.
@@ -91,7 +92,7 @@ def overfit(
         optimiser.zero_grad(set_to_none=True)
         predicted = model(mixture)
         loss, _reconstruction, _silence = separation_loss(
-            predicted, targets, floor_dbfs=absence_floor_dbfs
+            predicted, targets, candidate_dbfs=absence_candidate_dbfs
         )
         loss.backward()
         optimiser.step()
@@ -169,7 +170,7 @@ def fit(
             loss, reconstruction, silence = separation_loss(
                 model(torch.from_numpy(batch.mixture).to(device)),
                 torch.from_numpy(batch.targets).to(device),
-                floor_dbfs=thresholds.absence_at_or_below_dbfs,
+                candidate_dbfs=thresholds.audibility_minimum_dbfs,
                 weight_per_db=silence_weight_per_db,
             )
             loss.backward()
@@ -219,11 +220,20 @@ def evaluate(model, corpus: RenderedCorpus, thresholds: RoleThresholds, *, limit
             batch = draw_batch(corpus, [index], frames, rng)
             predicted = model(torch.from_numpy(batch.mixture).to(device))
             estimate = predicted[0].cpu().numpy()
+            # Score what would be published, not the raw tensor. Absence is a
+            # publication decision, so a report that skips it measures a
+            # pipeline nobody runs.
+            published = resolve_absence(
+                batch.mixture[0].T,
+                estimate[SOURCES.index("lead_guitar")].T,
+                estimate[SOURCES.index("rhythm_guitar")].T,
+                thresholds,
+            )
             scores.append(
                 score_example(
                     batch.mixture[0].T,
-                    estimate[SOURCES.index("lead_guitar")].T,
-                    estimate[SOURCES.index("rhythm_guitar")].T,
+                    published.lead,
+                    published.rhythm,
                     thresholds,
                     lead_absent_expected=batch.lead_absent[0],
                 )

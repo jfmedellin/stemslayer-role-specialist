@@ -23,7 +23,7 @@ try:
 except Exception as error:  # pragma: no cover - exercised only without PyTorch
     TORCH_ERROR = error
 
-FLOOR = -80.0
+CANDIDATE = -40.0
 FRAMES = 4_096
 
 
@@ -44,20 +44,20 @@ class SilencePenaltyTests(unittest.TestCase):
         targets = self.lanes(0.5)
         estimate = self.lanes(1e-9)
 
-        self.assertEqual(0.0, float(silence_penalty(estimate, targets, floor_dbfs=FLOOR)))
+        self.assertEqual(0.0, float(silence_penalty(estimate, targets, candidate_dbfs=CANDIDATE)))
 
     def test_energy_in_a_lane_that_should_be_silent_costs_something(self):
         targets = self.lanes(0.0)
         loud = self.lanes(0.5)
 
-        self.assertGreater(float(silence_penalty(loud, targets, floor_dbfs=FLOOR)), 0.0)
+        self.assertGreater(float(silence_penalty(loud, targets, candidate_dbfs=CANDIDATE)), 0.0)
 
     def test_the_penalty_stops_once_the_lane_is_quiet_enough(self):
         targets = self.lanes(0.0)
-        below_the_floor = self.lanes(10 ** ((FLOOR - DEFAULT_MARGIN_DB - 20.0) / 20.0))
+        below_the_floor = self.lanes(10 ** ((CANDIDATE - DEFAULT_MARGIN_DB - 20.0) / 20.0))
 
         self.assertEqual(
-            0.0, float(silence_penalty(below_the_floor, targets, floor_dbfs=FLOOR))
+            0.0, float(silence_penalty(below_the_floor, targets, candidate_dbfs=CANDIDATE))
         )
 
     def test_the_push_does_not_fade_as_the_lane_gets_quieter(self):
@@ -68,15 +68,17 @@ class SilencePenaltyTests(unittest.TestCase):
         while its loss kept falling.
         """
         targets = self.lanes(0.0)
+        # Both levels sit above the candidate threshold, so both are still
+        # being pushed. Straddling it would measure the cutoff instead.
         loud = self.lanes(10 ** (-20.0 / 20.0))
-        quiet = self.lanes(10 ** (-60.0 / 20.0))
+        quieter = self.lanes(10 ** (-30.0 / 20.0))
 
-        gap = float(silence_penalty(loud, targets, floor_dbfs=FLOOR)) - float(
-            silence_penalty(quiet, targets, floor_dbfs=FLOOR)
+        gap = float(silence_penalty(loud, targets, candidate_dbfs=CANDIDATE)) - float(
+            silence_penalty(quieter, targets, candidate_dbfs=CANDIDATE)
         )
 
-        # Forty decibels of difference must still cost forty decibels' worth.
-        self.assertAlmostEqual(40.0, gap / 0.001, places=1)
+        # Ten decibels of difference must still cost ten decibels' worth.
+        self.assertAlmostEqual(10.0, gap / 0.001, places=1)
 
     def test_only_the_silent_lane_of_a_mixed_example_is_counted(self):
         targets = torch.cat(
@@ -84,8 +86,8 @@ class SilencePenaltyTests(unittest.TestCase):
         )
         estimate = 0.5 * torch.ones(1, 2, 2, FRAMES)
 
-        both_silent = silence_penalty(estimate, torch.zeros_like(targets), floor_dbfs=FLOOR)
-        one_silent = silence_penalty(estimate, targets, floor_dbfs=FLOOR)
+        both_silent = silence_penalty(estimate, torch.zeros_like(targets), candidate_dbfs=CANDIDATE)
+        one_silent = silence_penalty(estimate, targets, candidate_dbfs=CANDIDATE)
 
         self.assertAlmostEqual(float(both_silent), float(one_silent), places=5)
         self.assertEqual(1, int(silent_lane_mask(targets).sum()))
@@ -100,7 +102,7 @@ class LevelTests(unittest.TestCase):
         self.assertAlmostEqual(0.0, float(lane_level_db(torch.ones(1, 1, 2, FRAMES))[0, 0]), places=4)
 
     def test_digital_silence_reads_far_below_the_floor(self):
-        self.assertLess(float(lane_level_db(torch.zeros(1, 1, 2, FRAMES))[0, 0]), FLOOR)
+        self.assertLess(float(lane_level_db(torch.zeros(1, 1, 2, FRAMES))[0, 0]), CANDIDATE)
 
 
 class SeparationLossTests(unittest.TestCase):
@@ -114,7 +116,7 @@ class SeparationLossTests(unittest.TestCase):
         )
         estimate = 0.4 * torch.ones(1, 2, 2, FRAMES)
 
-        total, reconstruction, silence = separation_loss(estimate, targets, floor_dbfs=FLOOR)
+        total, reconstruction, silence = separation_loss(estimate, targets, candidate_dbfs=CANDIDATE)
 
         self.assertGreater(reconstruction, 0.0)
         self.assertGreater(silence, 0.0)
@@ -125,7 +127,7 @@ class SeparationLossTests(unittest.TestCase):
             [torch.zeros(1, 1, 2, FRAMES), 0.5 * torch.ones(1, 1, 2, FRAMES)], dim=1
         )
 
-        total, reconstruction, silence = separation_loss(targets, targets, floor_dbfs=FLOOR)
+        total, reconstruction, silence = separation_loss(targets, targets, candidate_dbfs=CANDIDATE)
 
         self.assertEqual(0.0, reconstruction)
         self.assertEqual(0.0, silence)
@@ -135,7 +137,7 @@ class SeparationLossTests(unittest.TestCase):
         targets = torch.zeros(1, 2, 2, FRAMES)
         estimate = (0.1 * torch.ones(1, 2, 2, FRAMES)).requires_grad_(True)
 
-        silence_penalty(estimate, targets, floor_dbfs=FLOOR).backward()
+        silence_penalty(estimate, targets, candidate_dbfs=CANDIDATE).backward()
 
         self.assertIsNotNone(estimate.grad)
         self.assertGreater(float(estimate.grad.abs().sum()), 0.0)
