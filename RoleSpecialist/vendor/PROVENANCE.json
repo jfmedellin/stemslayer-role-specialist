@@ -1,0 +1,15 @@
+{
+  "source_repository": "https://github.com/jfmedellin/separador-pistas",
+  "source_tag": "v1.2.0",
+  "why": "Admission and this trainer must agree exactly on what absent, audible and reconstructed mean. A second definition would let a checkpoint pass one and fail the other, which makes the admission gate meaningless. These files are copied, never rewritten; refresh them with Tools/refresh_vendored_metrics.py.",
+  "files": {
+    "role_metrics.py": {
+      "origin_path": "SeparationWorker/engine/role_metrics.py",
+      "sha256": "ca7ff8c50262a9ef6510ab192d6ce23b6ca33ab2c114dbaaaf53ba038c6306bb"
+    },
+    "thresholds.json": {
+      "origin_path": "Compliance/evidence/metal-guitar/thresholds.json",
+      "sha256": "36dc7e7e0acf5cc2fad822eac0c996ad8021c8fa47d5f6503fe30d9a0aa1c42b"
+    }
+  }
+}

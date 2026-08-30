@@ -1,0 +1,17 @@
+# Rendered audio is many gigabytes and is regenerated from seeds, never
+# committed. What belongs in git is the code that renders it.
+#
+# These patterns are anchored: an unanchored "corpus/" also matches the source
+# package RoleSpecialist/corpus and silently drops it from the repository.
+/data/
+/renders/
+/checkpoints/
+/runs/
+*.wav
+*.flac
+*.pt
+*.ckpt
+
+.venv/
+__pycache__/
+*.pyc

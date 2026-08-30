@@ -1,0 +1,5 @@
+# Corpus synthesis and the shared measurements need nothing but numpy.
+# Training dependencies arrive with the training stage, deliberately later:
+# there is no point pinning a GPU stack before the corpus is proven.
+numpy==2.4.1
+soundfile==0.13.1
