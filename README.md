@@ -185,6 +185,50 @@ real one collapses it from 31.0 dB to 2.9 dB. That margin is what makes the
 decision safe to act on, and it lives in publication rather than in training
 because the contract puts it there.
 
+### The model learns the role, and cannot reconstruct real audio
+
+The checkpoint trained entirely on Karplus-Strong plucks through a `tanh` found
+the solo in a real Megadeth track. Lead energy rose at 2:16, held between 18%
+and 45% through the solo, and fell to 0.1% at 2:48, against a solo a listener
+independently placed at 2:20 to 2:47. Inside the solo it carried 30% of the
+energy and outside it 13%.
+
+That answers the question this corpus existed to ask. A model trained on
+synthesis could have learned the generator; this one learned something about
+what separates a foreground voice from an accompaniment, and it transfers.
+
+Reconstruction does not. 36.8 dB on synthetic validation becomes 25.5 dB on the
+real stem, below the 30 dB gate, and the audible symptom is energy landing
+cleanly in neither lane.
+
+### Articulation was not the missing realism
+
+The obvious next move was to make the synthesis more like a real riff: palm
+muting, held lead notes, per-example amplifier voicing, and four times the
+corpus. Measured on the same track:
+
+| Corpus | Synthetic publishable | Real reconstruction | Solo-to-rest ratio |
+| --- | --- | --- | --- |
+| 256 examples | 100% | 25.5 dB | 2.3x |
+| 1024, enriched | 96.9% | 25.0 dB | 2.2x |
+
+**Nothing moved.** Not the reconstruction, not the solo detection. The
+enrichment was worth doing precisely because it rules out the cheap
+explanation: if the gap were chugging or amplifier variety, this would have
+closed some of it.
+
+What remains is what a sixty-line physical model cannot produce. String and
+fret interaction, pick noise, the harmonics of fretted notes. A real
+amplification chain, where a `tanh` is not a valve and a one-pole filter is not
+a cabinet. A room, a microphone, a mix. And one thing synthesis cannot address
+at all: the guitar handed to the specialist has already been through
+`htdemucs_6s`, so it carries that separation's artefacts, and a clean corpus
+contains none.
+
+Closing this gap means recorded DI with training rights negotiated, which is the
+staged fallback this repository named on its first day. It now has evidence
+behind it rather than an intuition.
+
 ## Where the runs stand
 
 | Run | Reconstruction | Publishable | Absence recall |
@@ -193,16 +237,27 @@ because the contract puts it there.
 | Silence term aimed at the -80 dBFS floor | 23.3 dB | 0% | 6 of 6 |
 | Aimed at audibility, measuring RMS | 30.3 dB | 41% | 0 of 6 |
 | Aimed at audibility, measuring the peak | 27.9 dB | 19% | 6 of 6 |
+| The same, run to 400 epochs | 38.1 dB | 100% | 6 of 6 |
+| Enriched corpus of 1024, 400 epochs | 32.7 dB | 96.9% | all |
 
-The last row solves absence and has not yet recovered the reconstruction the
-first row reached. Its trajectory was still climbing at epoch 200, so the next
-measurement is simply a longer run rather than another change.
+The fourth row was not a ceiling, only a halfway point: the same configuration
+run twice as long cleared every gate on synthetic validation. The fifth scores
+slightly lower on a corpus that is harder, and neither improves the real
+recording.
 
 ## Status
 
-Nothing here is admissible. A corpus renders and satisfies the gates its own
-ground truth must satisfy, a harness learns from it, absence is decided the way
-the contract specifies, and no checkpoint yet clears every gate at once.
-Evaluation on real metal recordings and the perceptual evidence the contract
-requires are both still ahead.
+Nothing here is admissible, and what blocks it is now known rather than
+suspected.
+
+A corpus renders and satisfies the gates its own ground truth must satisfy. A
+harness learns from it. Absence is decided the way the contract specifies. A
+checkpoint clears every gate on synthetic validation and finds the solo in a
+real recording with the right edges.
+
+It does not reconstruct that recording, and enriching the synthesis did not
+help. The next step is not code: it is recorded guitar DI with rights that
+permit training redistributable weights. The perceptual evidence the contract
+requires has not been gathered either, and the thresholds remain
+`"calibrated": false`.
 
